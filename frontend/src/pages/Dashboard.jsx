@@ -145,7 +145,9 @@ export default function Dashboard() {
         <div className="controls-bar">
           <div className="search-section">
             <div className="search-input-wrapper">
-              <span className="search-icon">&#128269;</span>
+              <span className="search-icon">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.65" y1="16.65" x2="21" y2="21"/></svg>
+              </span>
               <input
                 type="text"
                 className="search-input"
