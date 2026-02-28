@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-toastify';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import TaskCard from '../components/TaskCard';
@@ -76,6 +77,7 @@ export default function Dashboard() {
 
   const handleAddTask = async (taskData) => {
     await taskAPI.create(taskData);
+    toast.success('Task created successfully!');
     fetchTasks();
   };
 
@@ -85,7 +87,7 @@ export default function Dashboard() {
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
       setUndoTask({ id: taskId });
     } catch {
-      // ignore
+      toast.error('Failed to delete task');
     }
   };
 
@@ -94,8 +96,10 @@ export default function Dashboard() {
     try {
       await taskAPI.restore(undoTask.id);
       setUndoTask(null);
+      toast.info('Task restored!');
       fetchTasks();
     } catch {
+      toast.error('Could not restore task — undo window expired');
       setUndoTask(null);
     }
   };
@@ -111,6 +115,13 @@ export default function Dashboard() {
     setSortBy('created_at');
     setSortOrder('asc');
   };
+
+  const clearDateRange = () => {
+    setFromDate('');
+    setToDate('');
+  };
+
+  const hasDateRange = fromDate || toDate;
 
   const sortOptions = [
     { value: 'created_at|asc', label: 'Created (Earliest)' },
@@ -163,6 +174,15 @@ export default function Dashboard() {
                   max={today}
                 />
               </div>
+              {hasDateRange && (
+                <button
+                  className="btn-date-clear"
+                  onClick={clearDateRange}
+                  title="Clear date range"
+                >
+                  &times;
+                </button>
+              )}
             </div>
           </div>
           <div className="actions-section">
@@ -179,7 +199,7 @@ export default function Dashboard() {
             </select>
             {(searchQuery || fromDate || toDate || sortBy !== 'created_at' || sortOrder !== 'asc') && (
               <button className="btn btn-ghost" onClick={clearFilters}>
-                Clear
+                Clear All
               </button>
             )}
             <button

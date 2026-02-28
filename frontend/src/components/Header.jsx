@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import { authAPI } from '../api';
 
@@ -23,6 +24,7 @@ export default function Header() {
     } catch {
       // ignore
     }
+    toast.info('Logged out successfully');
     logout();
   };
 

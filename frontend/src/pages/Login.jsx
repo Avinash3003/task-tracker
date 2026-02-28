@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import { authAPI } from '../api';
 
@@ -22,9 +23,12 @@ export default function Login() {
     try {
       const res = await authAPI.login({ username: username.trim(), password });
       login(res.data.access_token, res.data.username);
+      toast.success(`Welcome back, ${res.data.username}!`);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
+      const msg = err.response?.data?.detail || 'Login failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import { authAPI } from '../api';
 
@@ -35,9 +36,12 @@ export default function Register() {
         confirm_password: confirmPassword,
       });
       login(res.data.access_token, res.data.username);
+      toast.success(`Account created! Welcome, ${res.data.username}!`);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed');
+      const msg = err.response?.data?.detail || 'Registration failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { authAPI } from '../api';
 
 export default function ForgotPassword() {
@@ -7,7 +8,6 @@ export default function ForgotPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -23,17 +23,18 @@ export default function ForgotPassword() {
     }
     setLoading(true);
     setError('');
-    setSuccess('');
     try {
       await authAPI.forgotPassword({
         username: username.trim(),
         new_password: newPassword,
         confirm_password: confirmPassword,
       });
-      setSuccess('Password reset successful! Redirecting to login...');
-      setTimeout(() => navigate('/login'), 2000);
+      toast.success('Password updated successfully!');
+      setTimeout(() => navigate('/login'), 1500);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Reset failed');
+      const msg = err.response?.data?.detail || 'Reset failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -49,7 +50,6 @@ export default function ForgotPassword() {
         </div>
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="form-error">{error}</div>}
-          {success && <div className="form-success">{success}</div>}
           <div className="form-group">
             <label>Username</label>
             <input
