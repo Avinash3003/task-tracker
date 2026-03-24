@@ -3,16 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from sqlalchemy import or_
 
 from database import engine, get_db, Base
-from models import User, Task
+from models import User, Task, TaskStatus
 from schemas import (
     UserRegister,
     UserLogin,
+    UserDeleteRequest,
     ForgotPassword,
     TaskCreate,
     TaskResponse,
     TokenResponse,
+    TaskStatusUpdate,
+    TaskAssignUpdate,
+    UserBase
 )
 from auth import (
     hash_password,
@@ -39,7 +44,7 @@ def cleanup_expired_deleted_tasks(db: Session, user_id: int):
     expired = (
         db.query(Task)
         .filter(
-            Task.user_id == user_id,
+            or_(Task.user_id == user_id, Task.assigned_user_id == user_id),
             Task.is_deleted == True,
             Task.deleted_at != None,
             Task.deleted_at < cutoff,
@@ -52,19 +57,27 @@ def cleanup_expired_deleted_tasks(db: Session, user_id: int):
         db.commit()
 
 
-# --- Auth Endpoints ---
 
+
+
+# --- Auth Endpoints ---
 
 @app.post("/register", response_model=TokenResponse)
 def register(user: UserRegister, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == user.username).first()
+    existing = db.query(User).filter(or_(User.username == user.username, User.email == user.email)).first()
     if existing:
+        if existing.email == user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already exists",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already exists",
         )
     new_user = User(
         username=user.username,
+        email=user.email,
         password_hash=hash_password(user.password),
     )
     db.add(new_user)
@@ -72,13 +85,13 @@ def register(user: UserRegister, db: Session = Depends(get_db)):
     db.refresh(new_user)
     token = create_access_token(data={"sub": new_user.username})
     return TokenResponse(
-        access_token=token, token_type="bearer", username=new_user.username
+        access_token=token, token_type="bearer", username=new_user.username, user_id=new_user.id
     )
 
 
 @app.post("/login", response_model=TokenResponse)
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == user.username).first()
+    db_user = db.query(User).filter(or_(User.username == user.username, User.email == user.username)).first()
     if not db_user or not verify_password(user.password, db_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -86,7 +99,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
         )
     token = create_access_token(data={"sub": db_user.username})
     return TokenResponse(
-        access_token=token, token_type="bearer", username=db_user.username
+        access_token=token, token_type="bearer", username=db_user.username, user_id=db_user.id
     )
 
 
@@ -108,8 +121,26 @@ def logout():
     return {"message": "Logged out successfully"}
 
 
-# --- Task Endpoints ---
+@app.get("/users", response_model=list[UserBase])
+def get_users(q: Optional[str] = Query(None), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = db.query(User)
+    if q:
+        query = query.filter(or_(User.username.ilike(f"%{q}%"), User.email.ilike(f"%{q}%")))
+    return query.all()
 
+@app.delete("/users/me")
+def delete_me(body: UserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password",
+        )
+    db.delete(current_user)
+    db.commit()
+    return {"message": "Account deleted successfully"}
+
+
+# --- Task Endpoints ---
 
 @app.post("/tasks", response_model=TaskResponse)
 def create_task(
@@ -129,8 +160,10 @@ def create_task(
 
     new_task = Task(
         user_id=current_user.id,
+        assigned_user_id=task.assigned_user_id,
         title=task.title,
         description=task.description or "",
+        status=task.status or TaskStatus.TODO,
         deadline_date=deadline,
     )
     db.add(new_task)
@@ -147,7 +180,10 @@ def get_tasks(
     cleanup_expired_deleted_tasks(db, current_user.id)
     tasks = (
         db.query(Task)
-        .filter(Task.user_id == current_user.id, Task.is_deleted == False)
+        .filter(
+            or_(Task.user_id == current_user.id, Task.assigned_user_id == current_user.id),
+            Task.is_deleted == False
+        )
         .order_by(Task.created_at.asc())
         .all()
     )
@@ -167,7 +203,7 @@ def delete_task(
         )
     if task.user_id != current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only owner can delete"
         )
     task.is_deleted = True
     task.deleted_at = datetime.now(timezone.utc)
@@ -188,7 +224,7 @@ def restore_task(
         )
     if task.user_id != current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only owner can restore"
         )
     if not task.is_deleted:
         raise HTTPException(
@@ -212,21 +248,69 @@ def restore_task(
     return task
 
 
+@app.put("/tasks/{task_id}/status", response_model=TaskResponse)
+def update_task_status(
+    task_id: int,
+    data: TaskStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.is_deleted == False).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.user_id != current_user.id and task.assigned_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this task")
+        
+    old_status = task.status
+    task.status = data.status
+    if task.status == TaskStatus.DONE:
+        task.completed_at = datetime.now(timezone.utc)
+    else:
+        task.completed_at = None
+    task.status_updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@app.put("/tasks/{task_id}/assign", response_model=TaskResponse)
+def assign_task(
+    task_id: int,
+    data: TaskAssignUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.is_deleted == False).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.user_id != current_user.id and task.assigned_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to assign this task")
+        
+    task.assigned_user_id = data.assigned_user_id
+    db.commit()
+    db.refresh(task)
+    return task
+
+
 @app.get("/tasks/search", response_model=list[TaskResponse])
 def search_tasks(
     q: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
+    status: Optional[TaskStatus] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     cleanup_expired_deleted_tasks(db, current_user.id)
     query = db.query(Task).filter(
-        Task.user_id == current_user.id, Task.is_deleted == False
+        or_(Task.user_id == current_user.id, Task.assigned_user_id == current_user.id), 
+        Task.is_deleted == False
     )
 
     if q:
         query = query.filter(Task.title.ilike(f"%{q}%"))
+    if status:
+        query = query.filter(Task.status == status)
 
     if from_date:
         try:
@@ -250,13 +334,18 @@ def search_tasks(
 def sort_tasks(
     sort_by: str = Query("created_at"),
     order: str = Query("asc"),
+    status: Optional[TaskStatus] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     cleanup_expired_deleted_tasks(db, current_user.id)
     query = db.query(Task).filter(
-        Task.user_id == current_user.id, Task.is_deleted == False
+        or_(Task.user_id == current_user.id, Task.assigned_user_id == current_user.id), 
+        Task.is_deleted == False
     )
+
+    if status:
+        query = query.filter(Task.status == status)
 
     column_map = {
         "created_at": Task.created_at,
@@ -271,6 +360,8 @@ def sort_tasks(
         query = query.order_by(col.asc())
 
     return query.all()
+
+
 
 
 if __name__ == "__main__":
