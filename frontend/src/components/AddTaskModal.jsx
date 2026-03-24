@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import UserSelect from './UserSelect';
 
-export default function AddTaskModal({ onClose, onAdd }) {
+export default function AddTaskModal({ onClose, onAdd, users }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadlineDate, setDeadlineDate] = useState('');
+  const [assignedUserId, setAssignedUserId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -26,6 +28,7 @@ export default function AddTaskModal({ onClose, onAdd }) {
         title: title.trim(),
         description: description.trim(),
         deadline_date: deadlineDate || null,
+        assigned_user_id: assignedUserId ? parseInt(assignedUserId, 10) : null,
       });
       onClose();
     } catch (err) {
@@ -72,7 +75,11 @@ export default function AddTaskModal({ onClose, onAdd }) {
               min={today}
             />
           </div>
-          <button type="submit" className="btn btn-primary btn-glow" disabled={loading}>
+          <div className="form-group">
+             <label>Assign To</label>
+             <UserSelect value={assignedUserId} onChange={setAssignedUserId} />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={loading} style={{marginTop: '1rem'}}>
             {loading ? 'Creating...' : 'Create Task'}
           </button>
         </form>

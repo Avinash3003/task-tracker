@@ -1,15 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-toastify';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import TaskCard from '../components/TaskCard';
 import AddTaskModal from '../components/AddTaskModal';
 import TaskDetailModal from '../components/TaskDetailModal';
 import UndoToast from '../components/UndoToast';
-import { taskAPI } from '../api';
+import { taskAPI, userAPI } from '../api';
+
+const columns = [
+  { id: 'Todo', title: 'To Do' },
+  { id: 'In Progress', title: 'In Progress' },
+  { id: 'Done', title: 'Done' }
+];
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
+  const [users, setUsers] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [undoTask, setUndoTask] = useState(null);
@@ -24,8 +32,20 @@ export default function Dashboard() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const fetchTasks = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
+    try {
+      const [taskRes, userRes] = await Promise.all([taskAPI.getAll(), userAPI.getAll()]);
+      setTasks(taskRes.data);
+      setUsers(userRes.data);
+    } catch {
+      // handled by interceptor
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
     try {
       const isSearching = searchQuery || fromDate || toDate;
       const isSorting = sortBy !== 'created_at' || sortOrder !== 'asc';
@@ -49,9 +69,7 @@ export default function Dashboard() {
         setTasks(res.data);
       }
     } catch {
-      // handled by interceptor
-    } finally {
-      setLoading(false);
+        // error
     }
   }, [searchQuery, fromDate, toDate, sortBy, sortOrder]);
 
@@ -72,8 +90,18 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if(searchQuery || fromDate || toDate || sortBy !== 'created_at' || sortOrder !== 'asc') {
+       fetchTasks();
+    } else {
+       // Just refetching everything to clear search is effectively fetching all tasks
+       taskAPI.getAll().then(res => setTasks(res.data)).catch(()=>{});
+    }
+  }, [searchQuery, fromDate, toDate, sortBy, sortOrder, fetchTasks]);
+
 
   const handleAddTask = async (taskData) => {
     await taskAPI.create(taskData);
@@ -86,6 +114,7 @@ export default function Dashboard() {
       await taskAPI.delete(taskId);
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
       setUndoTask({ id: taskId });
+      if(selectedTask && selectedTask.id === taskId) setSelectedTask(null);
     } catch {
       toast.error('Failed to delete task');
     }
@@ -136,6 +165,30 @@ export default function Dashboard() {
     const [field, order] = e.target.value.split('|');
     setSortBy(field);
     setSortOrder(order);
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+    const { source, destination, draggableId } = result;
+
+    if (source.droppableId === destination.droppableId && source.index === destination.index) {
+        return;
+    }
+
+    const taskId = parseInt(draggableId, 10);
+    const newStatus = destination.droppableId;
+    
+    // Optimistic update
+    setTasks(prev => prev.map(t => 
+        t.id === taskId ? { ...t, status: newStatus } : t
+    ));
+
+    try {
+        await taskAPI.updateStatus(taskId, newStatus);
+    } catch(err) {
+        toast.error("Failed to update status");
+        fetchTasks();
+    }
   };
 
   return (
@@ -218,23 +271,57 @@ export default function Dashboard() {
             <div className="spinner" />
             <p>Loading tasks...</p>
           </div>
-        ) : tasks.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">&#128203;</div>
-            <h2>No Tasks Found</h2>
-            <p>Create your first task to get started!</p>
-          </div>
         ) : (
-          <div className="tasks-grid">
-            {tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onClick={setSelectedTask}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
+          <DragDropContext onDragEnd={onDragEnd}>
+            <div className="kanban-board">
+                {columns.map(col => {
+                    const columnTasks = tasks.filter(t => t.status === col.id);
+                    return (
+                        <div key={col.id} className="kanban-column">
+                            <div className="kanban-header">
+                                <h3>{col.title}</h3>
+                                <span className="kanban-badge">{columnTasks.length}</span>
+                            </div>
+                            <Droppable droppableId={col.id}>
+                                {(provided, snapshot) => (
+                                    <div 
+                                        className="kanban-tasks"
+                                        ref={provided.innerRef} 
+                                        {...provided.droppableProps}
+                                        style={{ background: snapshot.isDraggingOver ? 'rgba(0, 212, 170, 0.05)' : '' }}
+                                    >
+                                        {columnTasks.map((task, index) => (
+                                            <Draggable key={task.id} draggableId={task.id.toString()} index={index}>
+                                                {(provided, snapshot) => (
+                                                    <div 
+                                                        ref={provided.innerRef} 
+                                                        {...provided.draggableProps} 
+                                                        {...provided.dragHandleProps}
+                                                        style={{
+                                                            ...provided.draggableProps.style,
+                                                            opacity: snapshot.isDragging ? 0.8 : 1,
+                                                            transform: provided.draggableProps.style?.transform,
+                                                            marginBottom: '1rem'
+                                                        }}
+                                                    >
+                                                        <TaskCard
+                                                            task={task}
+                                                            onClick={setSelectedTask}
+                                                            onDelete={handleDelete}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </Draggable>
+                                        ))}
+                                        {provided.placeholder}
+                                    </div>
+                                )}
+                            </Droppable>
+                        </div>
+                    );
+                })}
+            </div>
+          </DragDropContext>
         )}
       </main>
       <Footer />
@@ -243,14 +330,17 @@ export default function Dashboard() {
         <AddTaskModal
           onClose={() => setShowAddModal(false)}
           onAdd={handleAddTask}
+          users={users}
         />
       )}
 
       {selectedTask && (
         <TaskDetailModal
-          task={selectedTask}
+          task={tasks.find(t => t.id === selectedTask.id) || selectedTask}
           onClose={() => setSelectedTask(null)}
           onDelete={handleDelete}
+          users={users}
+          onTaskUpdate={() => {fetchTasks()}}
         />
       )}
 

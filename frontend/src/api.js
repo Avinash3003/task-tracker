@@ -36,6 +36,11 @@ export const authAPI = {
   logout: () => api.post('/logout'),
 };
 
+export const userAPI = {
+  getAll: (q = '') => api.get('/users' + (q ? `?q=${q}` : '')),
+  deleteMe: (password) => api.delete('/users/me', { data: { password } }),
+};
+
 export const taskAPI = {
   create: (data) => api.post('/tasks', data),
   getAll: () => api.get('/tasks'),
@@ -43,6 +48,8 @@ export const taskAPI = {
   restore: (id) => api.put(`/tasks/${id}/restore`),
   search: (params) => api.get('/tasks/search', { params }),
   sort: (params) => api.get('/tasks/sort', { params }),
+  updateStatus: (id, status) => api.put(`/tasks/${id}/status`, { status }),
+  assign: (id, assigned_user_id) => api.put(`/tasks/${id}/assign`, { assigned_user_id }),
 };
 
 export default api;

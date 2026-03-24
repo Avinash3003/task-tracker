@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
-import { authAPI } from '../api';
+import { authAPI, userAPI } from '../api';
+import DeleteAccountModal from './DeleteAccountModal';
 
 export default function Header() {
   const { username, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -28,6 +30,8 @@ export default function Header() {
     logout();
   };
 
+
+
   return (
     <header className="app-header">
       <div className="header-left">
@@ -41,21 +45,33 @@ export default function Header() {
           className="user-btn"
           onClick={() => setDropdownOpen(!dropdownOpen)}
         >
-          <span className="user-avatar">{username?.[0]?.toUpperCase()}</span>
-          <span className="user-name">{username}</span>
+          <span className="user-name" style={{fontWeight: 700}}>{username}</span>
           <span className={`dropdown-arrow ${dropdownOpen ? 'open' : ''}`}>&#9660;</span>
         </button>
         <div className={`dropdown-panel ${dropdownOpen ? 'show' : ''}`}>
-          <div className="dropdown-user-info">
-            <div className="dropdown-avatar">{username?.[0]?.toUpperCase()}</div>
-            <div className="dropdown-username">{username}</div>
-          </div>
-          <div className="dropdown-divider" />
           <button className="dropdown-logout" onClick={handleLogout}>
             <span>&#9211;</span> Logout
           </button>
+          <button className="dropdown-logout" style={{color: 'var(--danger)'}} onClick={() => { setDropdownOpen(false); setShowDeleteModal(true); }}>
+             Delete Account
+          </button>
         </div>
       </div>
+      {showDeleteModal && (
+        <DeleteAccountModal 
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={async (password) => {
+             try {
+               await userAPI.deleteMe(password);
+               toast.success("Account permanently deleted.");
+               logout();
+             } catch (err) {
+               toast.error(err.response?.data?.detail || "Failed to delete account");
+               throw err;
+             }
+          }}
+        />
+      )}
     </header>
   );
 }

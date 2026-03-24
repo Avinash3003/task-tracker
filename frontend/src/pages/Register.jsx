@@ -6,6 +6,7 @@ import { authAPI } from '../api';
 
 export default function Register() {
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,7 +16,7 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !password || !confirmPassword) {
+    if (!username.trim() || !email.trim() || !password || !confirmPassword) {
       setError('All fields are required');
       return;
     }
@@ -32,6 +33,7 @@ export default function Register() {
     try {
       const res = await authAPI.register({
         username: username.trim(),
+        email: email.trim(),
         password,
         confirm_password: confirmPassword,
       });
@@ -65,6 +67,15 @@ export default function Register() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Choose a username"
               autoFocus
+            />
+          </div>
+          <div className="form-group">
+            <label>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
             />
           </div>
           <div className="form-group">

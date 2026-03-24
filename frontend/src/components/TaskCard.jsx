@@ -35,6 +35,7 @@ export default function TaskCard({ task, onClick, onDelete }) {
 
   const deadline = getDeadlineInfo(task.deadline_date);
   const deadlineColor = getDeadlineColor(deadline.days);
+  const isCompleted = task.status === 'Done';
 
   return (
     <div className="task-card" onClick={() => onClick(task)}>
@@ -54,24 +55,40 @@ export default function TaskCard({ task, onClick, onDelete }) {
       <p className="task-card-desc">
         {task.description || 'No description'}
       </p>
-      <div className="task-card-footer">
+      
+      {task.assignee && (
+         <div className="task-assignee">
+           <div className="assignee-avatar">
+              {task.assignee.username.charAt(0).toUpperCase()}
+           </div>
+           <span>{task.assignee.username}</span>
+         </div>
+      )}
+
+      <div className="task-card-footer" style={{marginTop: '1rem'}}>
         <span className="task-created-text">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           {formatCreatedDate(task.created_at)}
         </span>
-        <span
-          className="task-deadline-badge"
-          style={{
-            color: deadlineColor,
-            borderColor: deadlineColor,
-            boxShadow: deadline.days !== null && deadline.days <= 2
-              ? `0 0 8px ${deadlineColor}40`
-              : 'none',
-          }}
-        >
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          {deadline.text}
-        </span>
+        {isCompleted ? (
+           <span className="task-deadline-badge" style={{color: 'var(--success)', borderColor: 'var(--success)'}}>
+             &#10003; Done
+           </span>
+        ) : (
+          <span
+            className="task-deadline-badge"
+            style={{
+              color: deadlineColor,
+              borderColor: deadlineColor,
+              boxShadow: deadline.days !== null && deadline.days <= 2
+                ? `0 0 8px ${deadlineColor}40`
+                : 'none',
+            }}
+          >
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            {deadline.text}
+          </span>
+        )}
       </div>
     </div>
   );
