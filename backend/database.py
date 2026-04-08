@@ -8,7 +8,10 @@ from sqlalchemy.orm import sessionmaker
 # By default, load_dotenv will NOT overwrite any existing environment variables,
 # meaning that Docker Compose environment variables will correctly take precedence in production!
 env_path = os.path.join(os.path.dirname(__file__), ".env.dev")
-load_dotenv(env_path)
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 # Get connection string from environment variable
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")

@@ -11,7 +11,10 @@ from database import get_db
 from models import User
 
 env_path = os.path.join(os.path.dirname(__file__), ".env.dev")
-load_dotenv(env_path)
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
