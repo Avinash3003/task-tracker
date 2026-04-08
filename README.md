@@ -1,150 +1,170 @@
-# Task Tracker
+# Task Tracker: Cloud Native Architecture
 
-A full-stack 3-tier task management application with a modern Kanban-style UI — containerised with Docker and deployed on Kubernetes.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React (Vite) |
-| Backend | Python (FastAPI) |
-| Database | PostgreSQL |
-| Container Runtime | Docker |
-| Local Orchestration | Docker Compose |
-| Kubernetes (Local) | Minikube |
-| Web Server / Proxy | Nginx |
-| Image Registry | Docker Hub |
+A robust, full-stack 3-tier task management application built with a modern Kanban style UI. Engineered for production environments, containerized using Docker, orchestrated locally with Compose, and dynamically deployed to Kubernetes via a comprehensive CI/CD pipeline.
 
 ---
 
-## Features
+## 🏗 Architecture & Communication Flow
 
-- JWT authentication (30-min expiry, persists across refresh)
-- User registration, login, forgot password
-- Task CRUD with soft delete and 5-second undo
-- Search by title, filter by date range
-- Sort by created date, deadline, or title
-- Assign tasks to other users
-- Fully responsive Kanban board UI
+```mermaid
+graph TD
+    %% External System Entities
+    Browser("Client Browser")
+    GH("GitHub Actions CI/CD")
 
----
+    %% Cluster boundaries
+    subgraph cluster_k8s ["Kubernetes Cluster (Minikube)"]
+        Ingress("Nginx Ingress Controller")
+        
+        subgraph cluster_frontend ["Frontend Components"]
+            FrontSvc("Frontend Service :80")
+            FrontPod1("Frontend Pod 1 (Nginx/React)")
+            FrontPod2("Frontend Pod 2 (Nginx/React)")
+        end
+        
+        subgraph cluster_backend ["Backend Components"]
+            BackSvc("Backend Service :8000")
+            BackPod1("Backend Pod 1 (Python FastAPI)")
+            BackPod2("Backend Pod 2 (Python FastAPI)")
+            Config("App ConfigMap")
+            Secret("App Secrets")
+        end
+        
+        subgraph cluster_database ["Database Components"]
+            DBSvc("Postgres Service :5432")
+            DBPod("Postgres Pod")
+            PVC[("Postgres PVC")]
+        end
+        
+        Runner("Self-Hosted Local Runner")
+    end
 
-## Local Development (Without Docker)
-
-### Backend
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload
+    %% Network Routing Paths
+    Browser -->|"http://minikube-ip"| Ingress
+    Ingress -->|"/api/*"| BackSvc
+    Ingress -->|"/*"| FrontSvc
+    
+    FrontSvc --> FrontPod1
+    FrontSvc --> FrontPod2
+    
+    BackSvc --> BackPod1
+    BackSvc --> BackPod2
+    
+    BackPod1 -->|"SQL over TCP"| DBSvc
+    BackPod2 -->|"SQL over TCP"| DBSvc
+    
+    DBSvc --> DBPod
+    DBPod --> PVC
+    
+    %% Config Mount Paths
+    Config -.->|"Env Vars"| BackPod1
+    Config -.->|"Env Vars"| BackPod2
+    Secret -.->|"DB Credentials"| BackPod1
+    Secret -.->|"DB Credentials"| BackPod2
+    Secret -.->|"Init Credentials"| DBPod
+    
+    %% Automation Paths
+    GH -->|"Triggers pipeline push"| Runner
+    Runner -.->|"kubectl patching"| BackSvc
+    Runner -.->|"kubectl patching"| FrontSvc
 ```
-> Requires a running PostgreSQL instance. Copy `.env.dev` and set your `DATABASE_URL`.
-
-Backend runs at `http://localhost:8000`
-
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Frontend runs at `http://localhost:5173`
 
 ---
 
-## Running with Docker Compose
+## 💻 Local Setup Instructions
 
+### Prerequisites
+- Docker and Docker Compose installed.
+- Node.js (v20+) and Python (v3.12+).
+
+### Environment Variables
+For local execution, the environment strictly forces decoupled secrets. Do not commit these files:
+- **`backend/.env.dev`**: Contains `DATABASE_URL` and `SECRET_KEY`.
+- **`frontend/.env.development`**: Contains `VITE_API_URL=http://localhost:8000/`.
+
+### Running with Docker Compose
+To test the entire orchestrated 3-tier stack locally without K8s overhead:
 ```bash
-# Start all services (frontend, backend, PostgreSQL)
+# Spin up the frontend, backend, and Postgres database on a shared internal network
 docker-compose up -d --build
 
-# View live logs
+# Follow the live logs
 docker-compose logs -f
 ```
-
-Access the app at **`http://localhost`**
+The application will be universally bound to port 80. Access it at **http://localhost**.
 
 ---
 
-## Kubernetes Deployment (Minikube)
+## ☸️ Kubernetes Deployment
 
+The project contains native manifests targeting a Minikube cluster environment.
+1. **Start the Cluster**:
+   ```bash
+   minikube start
+   minikube addons enable ingress
+   ```
+2. **Apply Configurations**:
+   Generate your secure credentials using the dry-run CLI to prevent Git exposure.
+   ```bash
+   kubectl create secret generic backend-secret \
+     --from-literal=DATABASE_URL="postgresql://user:password@db-svc:5432/tasktracker" \
+     --from-literal=POSTGRES_USER="user" \
+     --from-literal=POSTGRES_PASSWORD="password" \
+     --from-literal=SECRET_KEY="super-secret-production-key" \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
+3. **Deploy the Fleet**:
+   ```bash
+   kubectl apply -f k8s/
+   ```
+4. **Access the Application**: Find your Minikube IP via `minikube ip` and hit it in the browser!
+
+---
+
+## 🚀 CI/CD Pipeline
+
+We employ a robust GitHub Actions pipeline mapped to `.github/workflows/deploy.yml`. 
+To bypass Minikube's hypervisor networking isolations, passing Cloud-to-Laptop restrictions securely, we use a **Self-Hosted Runner Daemon**. 
+
+- **Builds**: Docker images are pushed natively to `avinash3003/task-tracker-cicd` using dynamic `${{ github.sha }}` immutable tags.
+- **Delivery**: `kubectl set image` applies a Zero-Downtime Rolling Update sequentially to the pods.
+- **Verification**: `smoke_test.sh` generates a temporary K8s container to ping the internal `/health` endpoints.
+
+*(View the live pipeline runs directly on the [GitHub Actions UI](https://github.com/Avinash3003/task-tracker-devops/actions))*
+
+---
+
+## 🔌 API Documentation
+
+| Endpoint | Method | Body / Payload | Description |
+|---|---|---|---|
+| `/register` | POST | `{ username, email, password }` | Creates user, hashes password, returns access token. |
+| `/login` | POST | `{ username, password }` | Authenticates against Postgres and responds with JWT token. |
+| `/tasks` | GET  | `Authorization: Bearer <token>` | Fetches all active non-deleted tasks matching the user. |
+| `/tasks` | POST | `{ title, description, status, deadline }` | Creates a new Kanban task on the Postgres relational table. |
+
+---
+
+## 📋 Logging Guide
+
+Our microservices natively reject local file-logging in favor of native Cloud Native `stdout` structured JSON objects. Every request from the React frontend intrinsically generates a `X-Correlation-ID` header.
+
+**To trace a request live across all pod instances:**
 ```bash
-# Start Minikube and enable Ingress controller
-minikube start
-minikube addons enable ingress
-
-# Point Docker CLI to Minikube's internal Docker daemon
-eval $(minikube docker-env)
-
-# Build images directly into Minikube (no push needed for local testing)
-docker build -t avinash3003/task-tracker-cicd:backend-v2 ./backend
-docker build -t avinash3003/task-tracker-cicd:frontend-v2 ./frontend
-
-# Deploy all Kubernetes resources
-kubectl apply -f k8s/
-
-# Watch pods come up
-kubectl get pods -w
+# Tail logs across ALL backend replicas simultaneously
+kubectl logs -f deployment/backend-deployment
 ```
 
-Access the app at **`http://$(minikube ip)`**
+**What each field means**:
+- `timestamp`: UTC execution time.
+- `level`: INFO, WARNING, or ERROR thresholds.
+- `service_name`: Context identifier.
+- `correlation_id`: The unified Frontend UUID. Search this exact UUID to trace a bug traversing throughout the React Router down to the precise PostgreSQL transaction!
 
 ---
 
-## Repository Structure
+## ⚖️ Design Decisions & Tradeoffs
 
-```
-task-tracker/
-├── backend/              # FastAPI application
-│   ├── Dockerfile
-│   ├── .env.dev          # Local environment config (gitignored)
-│   ├── main.py
-│   ├── logger.py         # JSON structured logging
-│   └── requirements.txt
-├── frontend/             # React + Vite application
-│   ├── Dockerfile
-│   ├── nginx.conf        # Reverse proxy configuration
-│   └── src/
-│       ├── api.js        # Axios client with correlation ID injection
-│       └── logger.js     # Frontend structured logging wrapper
-├── k8s/                  # Kubernetes manifests
-│   ├── configmap.yaml
-│   ├── secret.yaml       # Gitignored — never committed
-│   ├── database.yaml
-│   ├── backend.yaml
-│   ├── frontend.yaml
-│   └── ingress.yaml
-└── docker-compose.yaml
-```
-
----
-
-## DevOps Summary
-
-### Docker
-- Multi-stage `Dockerfile` for both services to keep images lean.
-- Nginx inside the frontend container acts as a **reverse proxy**, routing `/api/*` requests to the backend internally — the backend is never directly exposed to the browser.
-- `docker-compose.yaml` runs all three services on a shared internal network. Only the frontend is exposed on port `80`.
-- Credentials are managed via `.env.dev` locally and environment variables in Docker Compose — never hardcoded.
-
-### Structured Logging
-- Backend produces JSON logs using `python-json-logger` with fields: `timestamp`, `level`, `service_name`, `message`, `correlation_id`.
-- React frontend generates a unique UUID (`X-Correlation-ID`) for every API call and passes it as a request header, making each action fully traceable across services.
-
-### Kubernetes
-- All services run as separate **Deployments with 2 replicas**, communicating via Kubernetes internal DNS only.
-- **ConfigMap** holds non-sensitive flags. **Secrets** hold database credentials — both injected via `envFrom`.
-- **Liveness and readiness probes** on `GET /health` enable automatic pod restarts on failure.
-- **Nginx Ingress** routes `/api/*` to the backend service and `/*` to the frontend through a single cluster entry point.
-
----
-
-## Docker Hub
-
-Images published at [`avinash3003/task-tracker-cicd`](https://hub.docker.com/r/avinash3003/task-tracker-cicd/tags)
-
-| Service | Tag |
-|---|---|
-| Backend | `backend-v2` |
-| Frontend | `frontend-v2` |
+1. **Self Hosted Runners vs Cloud Cloud API Exposures**: Instead of exposing the Minikube cluster dynamically through local firewalls to allow GitHub IP ranges in, we deployed a local Github Runner. The tradeoff is local hardware wear, but it strictly guarantees a bulletproof, isolated environment closure.
+2. **Postgres PVC Persistence over Managed Databases**: For local Kubernetes development, relying on a PersistentVolumeClaim inside the cluster rather than hooking into an external RDS instance allows full offline testing mobility, at the cost of higher risk upon node failure since database backups must be natively managed.
+3. **Nginx Reverse Polling in Frontend Container**: Rather than injecting a separate standalone Nginx pod purely for API Reverse proxying, the Vite Frontend container spins up lightweight Nginx to serve the React assets *and* proxy API routing. This halves the operational cluster resources for routing, while slightly violating the single-concern Docker principle.
