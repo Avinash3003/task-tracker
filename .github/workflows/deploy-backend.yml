@@ -1,0 +1,44 @@
+name: CI/CD - Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+
+jobs:
+  docker-configure:
+    name: Docker Setup
+    runs-on: self-hosted  
+    steps:
+      - name: Docker Login
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+  build-backend:
+    name: Build & Push Backend
+    needs: docker-configure
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & Push
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:backend-v${{ github.run_number }} ./backend
+          docker push ${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:backend-v${{ github.run_number }}
+
+  deploy-backend:
+    name: Kubernetes Rollout
+    needs: build-backend
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Set Image
+        run: kubectl set image deployment/backend-deployment backend=${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:backend-v${{ github.run_number }}
+
+  testing:
+    name: Smoke Test
+    needs: deploy-backend
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/smoke_test.sh

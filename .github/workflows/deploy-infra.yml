@@ -1,0 +1,25 @@
+name: CI/CD - Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s/**'
+
+jobs:
+  deploy-infra:
+    name: Kubernetes Apply
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Manifests
+        run: kubectl apply -f k8s/
+
+  testing:
+    name: Smoke Test
+    needs: deploy-infra
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/smoke_test.sh

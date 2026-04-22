@@ -1,0 +1,44 @@
+name: CI/CD - Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+
+jobs:
+  docker-configure:
+    name: Docker Setup
+    runs-on: self-hosted  
+    steps:
+      - name: Docker Login
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+  build-frontend:
+    name: Build & Push Frontend
+    needs: docker-configure
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & Push
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:frontend-v${{ github.run_number }} ./frontend
+          docker push ${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:frontend-v${{ github.run_number }}
+
+  deploy-frontend:
+    name: Kubernetes Rollout
+    needs: build-frontend
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Set Image
+        run: kubectl set image deployment/frontend-deployment frontend=${{ secrets.DOCKER_USERNAME }}/task-tracker-cicd:frontend-v${{ github.run_number }}
+
+  testing:
+    name: Smoke Test
+    needs: deploy-frontend
+    runs-on: self-hosted  
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/smoke_test.sh
