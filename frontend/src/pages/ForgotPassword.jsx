@@ -52,6 +52,7 @@ export default function ForgotPassword() {
           {error && <div className="form-error">{error}</div>}
           <div className="form-group">
             <label>Username</label>
+            
             <input
               type="text"
               value={username}
