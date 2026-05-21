@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: backend
-        image: avinash3003/task-tracker-cicd:backend-v2
+        image: avinash3003/task-tracker-cicd:backend-v1
         imagePullPolicy: Always
         ports:
         - containerPort: 8000

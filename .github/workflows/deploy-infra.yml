@@ -5,12 +5,12 @@ on:
     branches:
       - main
     paths:
-      - 'k8s/**'
+      - "k8s/**"
 
 jobs:
   deploy-infra:
     name: Kubernetes Apply
-    runs-on: self-hosted  
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - name: Apply Manifests
@@ -19,7 +19,7 @@ jobs:
   testing:
     name: Smoke Test
     needs: deploy-infra
-    runs-on: self-hosted  
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/smoke_test.sh
